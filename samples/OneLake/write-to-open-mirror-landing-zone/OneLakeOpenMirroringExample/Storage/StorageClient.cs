@@ -1,7 +1,10 @@
 using Azure.Core;
+using Azure.Core.Pipeline;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Files.DataLake;
+using OneLake.PathResolution;
+using System.Threading.Tasks;
 
 namespace OneLakeOpenMirroringExample.Storage;
 
@@ -21,10 +24,21 @@ public class StorageClient
         this.dataLakeServiceClient = dataLakeServiceClient;
     }
 
-    public static StorageClient CreateOneLakeClient(TokenCredential tokenCredential)
-    { 
-        var blobServiceClient = new BlobServiceClient(new Uri("https://onelake.blob.fabric.microsoft.com/"), tokenCredential);
-        var dataLakeServiceClient = new DataLakeServiceClient(new Uri("https://onelake.dfs.fabric.microsoft.com/"), tokenCredential);
+    public static async Task<StorageClient> CreateOneLakeClient(TokenCredential tokenCredential, bool usePathResolution = true, Action<BlobClientOptions, DataLakeClientOptions>? updateOptions = null)
+    {
+        BlobClientOptions blobClientOptions = new();
+        DataLakeClientOptions dataLakeClientOptions = new();
+        updateOptions?.Invoke(blobClientOptions, dataLakeClientOptions);
+
+        if (usePathResolution)
+        {
+            await blobClientOptions.InstallPathResolverAsync(new Uri("https://msit-onelake.blob.fabric.microsoft.com/"));
+            await dataLakeClientOptions.InstallPathResolverAsync(new Uri("https://msit-onelake.dfs.fabric.microsoft.com/"));
+        }
+
+        var blobServiceClient = new BlobServiceClient(new Uri("https://msit-onelake.blob.fabric.microsoft.com/"), tokenCredential, blobClientOptions);
+        var dataLakeServiceClient = new DataLakeServiceClient(new Uri("https://msit-onelake.dfs.fabric.microsoft.com/"), tokenCredential, dataLakeClientOptions);
+
         return new(blobServiceClient, dataLakeServiceClient);
     }
 
@@ -95,7 +109,7 @@ public class StorageClient
 
         public async Task RenameAsync(string newPath)
         {
-            async Task RenameDirectoryAsync(DataLakeServiceClient dataLakeServiceClient)
+            async Task RenamePath(DataLakeServiceClient dataLakeServiceClient)
             {
                 var fileSystemClient = dataLakeServiceClient.GetFileSystemClient(containerName);
                 var directoryClient = fileSystemClient.GetDirectoryClient(path);
@@ -114,7 +128,7 @@ public class StorageClient
             StorageOperation operation = new()
             {
                 WithFlatNamespace = CopyThenDeleteAsync,
-                WithHierarchicalNamespace = RenameDirectoryAsync
+                WithHierarchicalNamespace = RenamePath
             };
 
             await operation.Execute(client);

@@ -42,14 +42,14 @@ public class FabricPricePaidMirrorTests
             };
         }
 
-        public static TestSetup UsingFabric()
+        public async static Task<TestSetup> UsingFabric()
         {
             var defaultAzureCredential = new DefaultAzureCredential();
             var blobServiceClient = new BlobServiceClient(new Uri("https://onelake.blob.fabric.microsoft.com/"), defaultAzureCredential);
             var pricePaidReader = new TestPricePaidReader();
             var tableId = OneLakePaths.CreateFabricPricePaidTableId();
             var workspaceContainer = blobServiceClient.GetBlobContainerClient(tableId.WorkspaceName);
-            var oneLakeClient = StorageClient.CreateOneLakeClient(defaultAzureCredential);
+            var oneLakeClient = await StorageClient.CreateOneLakeClient(defaultAzureCredential);
             var fabricPricePaidMirror = new FabricPricePaidMirror(new FabricOpenMirror(oneLakeClient), pricePaidReader)
             {
                 Settings = new FabricPricePaidMirrorSettings { RowsPerRowGroup = 1 }
@@ -167,13 +167,13 @@ public class FabricPricePaidMirrorTests
         public class in_success_cases : when_copying_to_mirror_successfully
         {
             [SetUp]
-            public void UseFabric() => setup = TestSetup.UsingFabric();
+            public async Task UseFabric() => setup = await TestSetup.UsingFabric();
         }
 
         public class in_failure_cases : when_copying_to_mirror_fails
         {
             [SetUp]
-            public void UseFabric() => setup = TestSetup.UsingFabric();
+            public async Task UseFabric() => setup = await TestSetup.UsingFabric();
         }
     }
 

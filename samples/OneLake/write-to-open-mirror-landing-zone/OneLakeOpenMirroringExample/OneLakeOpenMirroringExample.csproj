@@ -19,4 +19,8 @@
       <Folder Include="OpenMirroring\" />
     </ItemGroup>
 
+    <ItemGroup>
+      <ProjectReference Include="..\OneLake.PathResolution\OneLake.PathResolution.csproj" />
+    </ItemGroup>
+
 </Project>

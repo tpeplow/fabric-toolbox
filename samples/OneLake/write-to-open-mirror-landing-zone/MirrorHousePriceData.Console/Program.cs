@@ -14,7 +14,7 @@ var blobServiceClient = new BlobServiceClient(new Uri("https://onelake.blob.fabr
 var pricePaidReader = new LandRegistryPricePaidDataProvider();
 var tableId = new OpenMirroredTableId(workspaceName, openMirrorName, "PricePaid");
 
-var oneLakeClient = StorageClient.CreateOneLakeClient(defaultAzureCredential);
+var oneLakeClient = await StorageClient.CreateOneLakeClient(defaultAzureCredential);
 
 var fabricPricePaidMirror = new FabricPricePaidMirror(new FabricOpenMirror(oneLakeClient), pricePaidReader);
 await fabricPricePaidMirror.SeedMirrorAsync(tableId);

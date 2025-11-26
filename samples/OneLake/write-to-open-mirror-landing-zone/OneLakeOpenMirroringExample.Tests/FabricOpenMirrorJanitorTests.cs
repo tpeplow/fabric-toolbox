@@ -28,7 +28,7 @@ namespace OneLakeOpenMirroringExample.Tests
         [Test]
         public async Task when_cleaning_up_a_table_in_fabric_it_should_delete_processed_and_ready_to_delete_folders()
         {
-            janitor = new FabricOpenMirrorJanitor(StorageClient.CreateOneLakeClient(new DefaultAzureCredential()));
+            janitor = new FabricOpenMirrorJanitor(await StorageClient.CreateOneLakeClient(new DefaultAzureCredential()));
             tableId = OneLakePaths.CreateFabricPricePaidTableId();
 
             await janitor.CleanUpTableAsync(tableId);
