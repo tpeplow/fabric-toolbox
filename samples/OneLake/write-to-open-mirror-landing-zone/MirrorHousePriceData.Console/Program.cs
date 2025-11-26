@@ -13,7 +13,7 @@ var defaultAzureCredential = new DefaultAzureCredential();
 var blobServiceClient = new BlobServiceClient(new Uri("https://onelake.blob.fabric.microsoft.com/"), defaultAzureCredential);
 var pricePaidReader = new LandRegistryPricePaidDataProvider();
 var tableId = new OpenMirroredTableId(workspaceName, openMirrorName, "PricePaid");
-var workspaceContainer = blobServiceClient.GetBlobContainerClient(tableId.WorkspaceName);
+
 var oneLakeClient = StorageClient.CreateOneLakeClient(defaultAzureCredential);
 
 var fabricPricePaidMirror = new FabricPricePaidMirror(new FabricOpenMirror(oneLakeClient), pricePaidReader);
