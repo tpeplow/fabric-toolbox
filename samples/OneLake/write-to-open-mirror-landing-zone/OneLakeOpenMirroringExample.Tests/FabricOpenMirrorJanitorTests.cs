@@ -19,7 +19,7 @@ namespace OneLakeOpenMirroringExample.Tests
             storageClient = await AzuriteHost.GetStorageClientUsingAzurite();
             mirror = new FabricOpenMirror(storageClient);
             janitor = new FabricOpenMirrorJanitor(storageClient);
-            tableId = new OpenMirroredTableId(Guid.NewGuid().ToString(), "TestDatabase", "TestTable");
+            tableId = OneLakePaths.CreateEmulatorPricePaidTableId();
             var blobServiceClient = await AzuriteHost.GetBlobServiceClientUsingAzurite();
             var createContainerResponse = await blobServiceClient.CreateBlobContainerAsync(tableId.WorkspaceName);
             workspaceContainer = createContainerResponse.Value;
@@ -29,8 +29,7 @@ namespace OneLakeOpenMirroringExample.Tests
         public async Task when_cleaning_up_a_table_in_fabric_it_should_delete_processed_and_ready_to_delete_folders()
         {
             janitor = new FabricOpenMirrorJanitor(StorageClient.CreateOneLakeClient(new DefaultAzureCredential()));
-            tableId = new OpenMirroredTableId($"TomTestWorkspace", "HousePriceOpenMirror.MountedRelationalDatabase",
-                "PricePaid");
+            tableId = OneLakePaths.CreateFabricPricePaidTableId();
 
             await janitor.CleanUpTableAsync(tableId);
         }

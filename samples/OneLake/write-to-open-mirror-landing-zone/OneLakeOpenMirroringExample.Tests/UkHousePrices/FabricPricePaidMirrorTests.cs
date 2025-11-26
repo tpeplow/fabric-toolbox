@@ -24,7 +24,7 @@ public class FabricPricePaidMirrorTests
         {
             var blobServiceClient = await AzuriteHost.GetBlobServiceClientUsingAzurite();
             var pricePaidReader = new TestPricePaidReader();
-            var tableId = new OpenMirroredTableId($"workspace-{Guid.NewGuid()}", "database", "table");
+            var tableId = OneLakePaths.CreateEmulatorPricePaidTableId();
             var createContainerResponse = await blobServiceClient.CreateBlobContainerAsync(tableId.WorkspaceName);
             var workspaceContainer = createContainerResponse.Value;
             var fabricPricePaidMirror = new FabricPricePaidMirror(new FabricOpenMirror(new StorageClient(blobServiceClient)), pricePaidReader)
@@ -47,7 +47,7 @@ public class FabricPricePaidMirrorTests
             var defaultAzureCredential = new DefaultAzureCredential();
             var blobServiceClient = new BlobServiceClient(new Uri("https://onelake.blob.fabric.microsoft.com/"), defaultAzureCredential);
             var pricePaidReader = new TestPricePaidReader();
-            var tableId = new OpenMirroredTableId($"TomTestWorkspace", "HousePriceOpenMirror.MountedRelationalDatabase", "PricePaid");
+            var tableId = OneLakePaths.CreateFabricPricePaidTableId();
             var workspaceContainer = blobServiceClient.GetBlobContainerClient(tableId.WorkspaceName);
             var oneLakeClient = StorageClient.CreateOneLakeClient(defaultAzureCredential);
             var fabricPricePaidMirror = new FabricPricePaidMirror(new FabricOpenMirror(oneLakeClient), pricePaidReader)
