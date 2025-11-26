@@ -28,9 +28,15 @@ public class StorageClient
         return new(blobServiceClient, dataLakeServiceClient);
     }
 
+    public async Task<IStoragePath> CreateContainerAsync(string containerName)
+    {
+        await blobServiceClient.CreateBlobContainerAsync(containerName);
+
+        return new StoragePath(this, containerName, null);
+    }
 
     public IStoragePath GetPath(string containerName, string? path = null) => new StoragePath(this, containerName, path);
-    
+
     private class StoragePath(StorageClient client, string containerName, string? path) : IStoragePath
     {
         public async Task<BlobFile> CreateFileAsync(string filePath)
@@ -125,6 +131,13 @@ public class StorageClient
                 return path;
             }
             return path.EndsWith('/') ? $"{path}{childPath}" : $"{path}/{childPath}";
+        }
+
+        public Task<Stream> OpenRead(BlobItem blob)
+        {
+            var containerClient = client.blobServiceClient.GetBlobContainerClient(containerName);
+            var blobClient = containerClient.GetBlobClient(blob.Name);
+            return blobClient.OpenReadAsync();
         }
     }
     
