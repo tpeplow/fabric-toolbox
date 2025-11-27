@@ -13,6 +13,7 @@ public sealed class PathResolutionClient : IPathResolutionClient
     private readonly PathResolutionClientOptions _options;
     private readonly ISecurityContextProvider _securityContextProvider;
     private readonly IPathCache _cache;
+    private readonly string _currentStorageEndpoint;
 
     private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -25,40 +26,46 @@ public sealed class PathResolutionClient : IPathResolutionClient
         _http.BaseAddress ??= _options.BaseAddress;
         _securityContextProvider = securityContextProvider ?? new SecurityContextProvider(_http);
         _cache = pathCache ?? new TriePathCache(_options.MaxConcurrentBackgroundRefreshes);
+
+        if (_http.BaseAddress.Host.Contains(".dfs.", StringComparison.OrdinalIgnoreCase))
+            _currentStorageEndpoint = "dfs";
+        else if (_http.BaseAddress.Host.Contains(".blob.", StringComparison.OrdinalIgnoreCase))
+            _currentStorageEndpoint = "blob";
+        else
+            throw new ArgumentException("HttpClient base address must be a blob or dfs endpoint", "httpClient");
     }
 
-    public async Task<PathRewriteOptions> ResolvePathsAsync(string workspaceIdOrName, string itemIdOrName, string path, string? itemType = null, string? supportedStorageTypes = null, CancellationToken cancellationToken = default)
+    public async Task<PathRewriteOptions> ResolvePathsAsync(string workspaceIdOrName, string itemIdOrName, string path, string? itemType = null, CancellationToken cancellationToken = default)
     {
         if (Guid.TryParse(workspaceIdOrName, out var wsId) && Guid.TryParse(itemIdOrName, out var itId))
         {
-            return await ResolvePathsByIdsAsync(wsId, itId, path, supportedStorageTypes, cancellationToken).ConfigureAwait(false);
+            return await ResolvePathsByIdsAsync(wsId, itId, path, cancellationToken).ConfigureAwait(false);
         }
         else
         {
             if (string.IsNullOrWhiteSpace(itemType))
                 throw new ArgumentException("Item type required when using names.", nameof(itemType));
-            return await ResolvePathsByNamesAsync(workspaceIdOrName, itemIdOrName, itemType!, path, supportedStorageTypes, cancellationToken).ConfigureAwait(false);
+            return await ResolvePathsByNamesAsync(workspaceIdOrName, itemIdOrName, itemType!, path, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private async Task<PathRewriteOptions> ResolvePathsByNamesAsync(string workspace, string item, string itemType, string path, string? supportedStorageTypes = null, CancellationToken cancellationToken = default)
+    private async Task<PathRewriteOptions> ResolvePathsByNamesAsync(string workspace, string item, string itemType, string path, CancellationToken cancellationToken = default)
     {
         ValidateNames(workspace, item, itemType);
         path = NormalizePath(path ?? string.Empty);
         var contextKey = _securityContextProvider.GetContextKey();
-        var supported = ParseSupported(supportedStorageTypes);
 
         var cacheResult = await _cache.GetOrAddAsync(
             contextKey,
             path!,
             () => {
-                string buildRequestUri() => BuildRequestUriNames(workspace, item, itemType, path!, supportedStorageTypes);
+                string buildRequestUri() => BuildRequestUriNames(workspace, item, itemType, path!);
                 return FetchAsync(buildUri: buildRequestUri, cancellationToken);
             },
             _options.RefreshSkew,
             cancellationToken).ConfigureAwait(false);
 
-        var rewriteOptions = BuildRewriteOptions((TriePathCache)_cache, contextKey, path!, supported, cacheResult);
+        var rewriteOptions = BuildRewriteOptions((TriePathCache)_cache, contextKey, path!, cacheResult);
 
         string? matchedLogical = (cacheResult.ResolvedNode is TrieNode rn) ? rn.Resolved?.Path : null;
         Console.WriteLine($"[PathResolutionClient] Cache {(cacheResult.FromCache ? "HIT" : "MISS")} context='{contextKey}' requestPath='{path}' matchedLogical='{matchedLogical ?? "<none>"}' resolvedEndpointPath='{rewriteOptions.Resolved?.Path ?? "<none>"}' proxyEndpointPath='{rewriteOptions.Proxy.Path}'");
@@ -66,23 +73,22 @@ public sealed class PathResolutionClient : IPathResolutionClient
         return rewriteOptions;
     }
 
-    private async Task<PathRewriteOptions> ResolvePathsByIdsAsync(Guid workspaceId, Guid itemId, string path, string? supportedStorageTypes = null, CancellationToken cancellationToken = default)
+    private async Task<PathRewriteOptions> ResolvePathsByIdsAsync(Guid workspaceId, Guid itemId, string path, CancellationToken cancellationToken = default)
     {
         path = NormalizePath(path ?? string.Empty);
         var contextKey = _securityContextProvider.GetContextKey();
-        var supported = ParseSupported(supportedStorageTypes);
 
         var cacheResult = await _cache.GetOrAddAsync(
             contextKey,
             path!,
             () => {
-                string buildRequestUri() => BuildRequestUriIds(workspaceId, itemId, path!, supportedStorageTypes);
+                string buildRequestUri() => BuildRequestUriIds(workspaceId, itemId, path!);
                 return FetchAsync(buildUri: buildRequestUri, cancellationToken);
             },
             _options.RefreshSkew,
             cancellationToken).ConfigureAwait(false);
 
-        var rewriteOptions = BuildRewriteOptions((TriePathCache)_cache, contextKey, path!, supported, cacheResult);
+        var rewriteOptions = BuildRewriteOptions((TriePathCache)_cache, contextKey, path!, cacheResult);
 
         string? matchedLogical = (cacheResult.ResolvedNode is TrieNode rn) ? rn.Resolved?.Path : null;
         Console.WriteLine($"[PathResolutionClient] Cache {(cacheResult.FromCache ? "HIT" : "MISS")} context='{contextKey}' requestPath='{path}' matchedLogical='{matchedLogical ?? "<none>"}' resolvedEndpointPath='{rewriteOptions.Resolved?.Path ?? "<none>"}' proxyEndpointPath='{rewriteOptions.Proxy.Path}'");
@@ -90,16 +96,9 @@ public sealed class PathResolutionClient : IPathResolutionClient
         return rewriteOptions;
     }
 
-    private static HashSet<string> ParseSupported(string? supported)
+    private PathRewriteOptions BuildRewriteOptions(TriePathCache trie, string originalContext, string originalPath, PathCacheResult cacheResult)
     {
-        if (string.IsNullOrWhiteSpace(supported)) return new HashSet<string>(StringComparer.OrdinalIgnoreCase){ "dfs" };
-        var parts = supported.Split(new[]{',',';',' '}, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return parts.Length == 0 ? new HashSet<string>(StringComparer.OrdinalIgnoreCase){ "dfs" } : new HashSet<string>(parts, StringComparer.OrdinalIgnoreCase);
-    }
-
-    private PathRewriteOptions BuildRewriteOptions(TriePathCache trie, string originalContext, string originalPath, HashSet<string> supported, PathCacheResult cacheResult)
-    {
-        var (bestResolvedNode, bestProxyNode) = trie.GetBestNodes(originalContext, originalPath, supported);
+        var (bestResolvedNode, bestProxyNode) = trie.GetBestNodes(originalContext, originalPath);
         string? resolvedRaw = bestResolvedNode != null ? BuildFromResolved(bestResolvedNode.Resolved!, originalPath) : null;
         string proxyRaw = bestProxyNode != null ? BuildProxyFromNode(bestProxyNode.Proxy!, originalPath) : (resolvedRaw ?? originalPath);
         if (resolvedRaw != null && string.Equals(resolvedRaw, proxyRaw, StringComparison.OrdinalIgnoreCase)) resolvedRaw = null;
@@ -152,7 +151,8 @@ public sealed class PathResolutionClient : IPathResolutionClient
         var basePath = resolvedNode.Path.Trim().TrimStart('/');
         var logical = originalPath.Trim().TrimStart('/');
         var suffix = logical.Length > basePath.Length ? logical[basePath.Length..].TrimStart('/') : string.Empty;
-        var endpoint = NormalizeEndpointForDataLake(resolvedNode.Endpoint).TrimEnd('/');
+        // var endpoint = NormalizeEndpointForDataLake(resolvedNode.Endpoint).TrimEnd('/');
+        var endpoint = resolvedNode.Endpoint.TrimEnd('/');
         var rewritten = string.IsNullOrEmpty(suffix) ? endpoint : endpoint + "/" + suffix;
         var cred = resolvedNode.Credentials.FirstOrDefault();
         if (cred != null && !string.IsNullOrEmpty(cred.Secret))
@@ -177,7 +177,7 @@ public sealed class PathResolutionClient : IPathResolutionClient
             if (!requestUri.Contains(sas, StringComparison.Ordinal))
                 requestUri += (requestUri.Contains('?') ? "&" : "?") + sas;
         }
-
+        
         using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
         var auth = _http.DefaultRequestHeaders.Authorization;
         if (auth is not null && request.Headers.Authorization is null)
@@ -225,23 +225,6 @@ public sealed class PathResolutionClient : IPathResolutionClient
         }
     }
 
-    private static string NormalizeEndpointForDataLake(string endpoint)
-    {
-        if (string.IsNullOrWhiteSpace(endpoint)) return endpoint;
-        try
-        {
-            var uri = new Uri(endpoint);
-            if (uri.Host.Contains(".dfs.", StringComparison.OrdinalIgnoreCase)) return endpoint;
-            if (uri.Host.Contains(".blob.", StringComparison.OrdinalIgnoreCase))
-            {
-                var dfsHost = uri.Host.Replace(".blob.", ".dfs.", StringComparison.OrdinalIgnoreCase);
-                return new UriBuilder(uri.Scheme, dfsHost, uri.Port, uri.AbsolutePath, uri.Query) { }.Uri.ToString();
-            }
-        }
-        catch { }
-        return endpoint;
-    }
-
     private static string Truncate(string value, int max)
         => string.IsNullOrEmpty(value) || value.Length <= max ? value : value[..max];
 
@@ -254,23 +237,21 @@ public sealed class PathResolutionClient : IPathResolutionClient
 
     private static string NormalizePath(string path) => path.Trim().TrimStart('/');
 
-    private static string BuildRequestUriNames(string workspace, string item, string itemType, string path, string? supportedStorageTypes)
+    private string BuildRequestUriNames(string workspace, string item, string itemType, string path)
     {
         var baseSegment = Uri.EscapeDataString(workspace) + "/" + Uri.EscapeDataString(item + "." + itemType) + "/" + path;
-        return AppendCommonQuery(baseSegment, supportedStorageTypes);
+        return AppendCommonQuery(baseSegment);
     }
 
-    private static string BuildRequestUriIds(Guid workspaceId, Guid itemId, string path, string? supportedStorageTypes)
+    private string BuildRequestUriIds(Guid workspaceId, Guid itemId, string path)
     {
         var baseSegment = workspaceId + "/" + itemId + "/" + path;
-        return AppendCommonQuery(baseSegment, supportedStorageTypes);
+        return AppendCommonQuery(baseSegment);
     }
 
-    private static string AppendCommonQuery(string baseSegment, string? supportedStorageTypes)
+    private string AppendCommonQuery(string baseSegment)
     {
-        var uri = baseSegment + "?oneLakeAction=ResolvePaths";
-        if (!string.IsNullOrWhiteSpace(supportedStorageTypes))
-            uri += "&olSupportedStorageTypes=" + Uri.EscapeDataString(supportedStorageTypes);
+        var uri = baseSegment + "?oneLakeAction=ResolvePaths&olSupportedStorageTypes=" + _currentStorageEndpoint;
         return uri;
     }
 

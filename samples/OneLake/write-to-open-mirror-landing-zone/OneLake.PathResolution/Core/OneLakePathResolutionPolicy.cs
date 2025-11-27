@@ -45,9 +45,17 @@ internal sealed class PathResolutionPolicy : HttpPipelinePolicy
         catch { return; }
         if (options == null) return;
 
-        var endpoint = options.Resolved ?? options.Proxy;
+        // we're already using the proxy, so don't worry about re-writing to the proxy
+        if (options.Resolved == null) return;
+
+        var endpoint = options.Resolved;
+
+        // remember to add back on the original query string
         var rewritten = endpoint.AbsoluteUri;
-        if (string.IsNullOrEmpty(rewritten) || string.Equals(rewritten, originalUri.AbsoluteUri, StringComparison.OrdinalIgnoreCase)) return;
+        if (!string.IsNullOrEmpty(originalUri.Query))
+        {
+            rewritten += "&" + originalUri.Query.TrimStart('?');
+        }
 
         try
         {

@@ -20,7 +20,7 @@ internal sealed class TriePathCache : IPathCache
     {
         if (!_contextCaches.TryGetValue(contextKey, out var cache)) return null;
         var now = DateTimeOffset.UtcNow;
-        var (bestResolved, bestProxy) = GetBestNodesInternal(cache.Root, normalizedPath, new HashSet<string>(StringComparer.OrdinalIgnoreCase){"dfs","blob"});
+        var (bestResolved, bestProxy) = GetBestNodesInternal(cache.Root, normalizedPath);
         if (bestResolved == null || bestResolved.EarliestExpiry <= now) return null;
         return new PathCacheResult { FromCache = true, ProxyNode = bestProxy, ResolvedNode = bestResolved, CachedResolvedPath = bestResolved.Resolved?.Path };
     }
@@ -32,7 +32,7 @@ internal sealed class TriePathCache : IPathCache
         var now = DateTimeOffset.UtcNow;
 
         // First attempt longest-prefix cache hit (ancestor or exact)
-        var (bestResolved, bestProxy) = GetBestNodesInternal(cache.Root, normalizedPath, new HashSet<string>(StringComparer.OrdinalIgnoreCase){"dfs","blob"});
+        var (bestResolved, bestProxy) = GetBestNodesInternal(cache.Root, normalizedPath);
         if (bestResolved != null && bestResolved.EarliestExpiry > now)
         {
             var remaining = bestResolved.EarliestExpiry - now;
@@ -49,7 +49,7 @@ internal sealed class TriePathCache : IPathCache
         try
         {
             // Re-evaluate after acquiring gate (could have been populated meanwhile)
-            var (br2, bp2) = GetBestNodesInternal(cache.Root, normalizedPath, new HashSet<string>(StringComparer.OrdinalIgnoreCase){"dfs","blob"});
+            var (br2, bp2) = GetBestNodesInternal(cache.Root, normalizedPath);
             if (br2 != null && br2.EarliestExpiry > DateTimeOffset.UtcNow)
             {
                 var remaining2 = br2.EarliestExpiry - DateTimeOffset.UtcNow;
@@ -61,7 +61,7 @@ internal sealed class TriePathCache : IPathCache
             // Fetch and index
             var model = await valueFactory().ConfigureAwait(false);
             IndexAllPaths(cache.Root, model);
-            var (br3, bp3) = GetBestNodesInternal(cache.Root, normalizedPath, new HashSet<string>(StringComparer.OrdinalIgnoreCase){"dfs","blob"});
+            var (br3, bp3) = GetBestNodesInternal(cache.Root, normalizedPath);
             return new PathCacheResult { FromCache = false, ProxyNode = bp3, ResolvedNode = br3, CachedResolvedPath = br3?.Resolved?.Path };
         }
         finally { node.Gate.Release(); }
@@ -71,7 +71,7 @@ internal sealed class TriePathCache : IPathCache
     {
         if (!_contextCaches.TryGetValue(contextKey, out var cache)) return;
         var now = DateTimeOffset.UtcNow;
-        var (bestResolved, _) = GetBestNodesInternal(cache.Root, normalizedPath, new HashSet<string>(StringComparer.OrdinalIgnoreCase){"dfs","blob"});
+        var (bestResolved, _) = GetBestNodesInternal(cache.Root, normalizedPath);
         if (bestResolved == null || bestResolved.Resolved == null) return;
         var remaining = bestResolved.EarliestExpiry - now;
         if (remaining > refreshSkew) return;
@@ -107,13 +107,13 @@ internal sealed class TriePathCache : IPathCache
         }
     }
 
-    internal (TrieNode? bestResolved, TrieNode? bestProxy) GetBestNodes(string contextKey, string normalizedPath, ISet<string> supportedFileSystems)
+    internal (TrieNode? bestResolved, TrieNode? bestProxy) GetBestNodes(string contextKey, string normalizedPath)
     {
         if (!_contextCaches.TryGetValue(contextKey, out var cache)) return (null, null);
-        return GetBestNodesInternal(cache.Root, normalizedPath, supportedFileSystems);
+        return GetBestNodesInternal(cache.Root, normalizedPath);
     }
 
-    private (TrieNode? bestResolved, TrieNode? bestProxy) GetBestNodesInternal(TrieNode root, string normalizedPath, ISet<string> supportedFileSystems)
+    private (TrieNode? bestResolved, TrieNode? bestProxy) GetBestNodesInternal(TrieNode root, string normalizedPath)
     {
         var segments = Split(normalizedPath);
         TrieNode current = root;
@@ -125,9 +125,9 @@ internal sealed class TriePathCache : IPathCache
             if (!current.Children.TryGetValue(seg, out var next)) break;
             current = next;
             depth++;
-            if (current.Proxy != null && supportedFileSystems.Contains(current.Proxy.FileSystem))
+            if (current.Proxy != null)
                 bestProxy = current;
-            if (current.Resolved != null && supportedFileSystems.Contains(current.Resolved.FileSystem))
+            if (current.Resolved != null)
             {
                 int suffixSegments = segments.Length - depth;
                 // Allow ancestor resolved for any deeper path (longest prefix) by relaxing suffixSegments condition.
