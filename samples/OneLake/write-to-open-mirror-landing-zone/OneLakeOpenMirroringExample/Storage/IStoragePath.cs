@@ -10,4 +10,5 @@ public interface IStoragePath
     IAsyncEnumerable<BlobItem?> GetBlobsAsync(string? prefix = null);
     Task DeleteIfExistsAsync();
     Task RenameAsync(string newName);
+    Task<bool> ExistsAsync();
 }

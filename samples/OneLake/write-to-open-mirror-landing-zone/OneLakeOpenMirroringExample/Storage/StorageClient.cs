@@ -153,6 +153,14 @@ public class StorageClient
             var blobClient = containerClient.GetBlobClient(blob.Name);
             return blobClient.OpenReadAsync();
         }
+
+        public async Task<bool> ExistsAsync()
+        {
+            var containerClient = client.blobServiceClient.GetBlobContainerClient(containerName);
+            var blobClient = containerClient.GetBlobClient(path);
+            var result = await blobClient.ExistsAsync();
+            return result.Value;
+        }
     }
     
     class StorageOperation
