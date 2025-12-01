@@ -37,6 +37,10 @@ internal sealed class PathResolutionPolicy : HttpPipelinePolicy
         if (!IsOneLakeProxyHost(originalUri)) return;
         if (!TryParseOneLakePath(originalUri, out var workspaceNameOrId, out var itemNameOrId, out var itemType, out var relativePath)) return;
 
+        // need a better way to do this, because we need to know what kind of SAS token is returned to rule out whether or not we can actually perfom the redirect
+        // but for now we do not allow moves, so this is a safe place for this:
+        if (message.Request.Headers.Contains("x-ms-rename-source")) return;
+
         PathRewriteOptions? options;
         try
         {
